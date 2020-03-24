@@ -2,4 +2,12 @@
 
 
 #include "BasicPlayFabLibrary.h"
+#include "PlayFabCommon.h"
+#include "BasicPlayFabSettings.h"
+#include "PlayFab.h"
 
+bool UBasicPlayFabLibrary::IsLoggedIn()
+{
+	return true;
+	//return IPlayFabModuleInterface::Get().GetClientAPI()->IsClientLoggedIn();
+}

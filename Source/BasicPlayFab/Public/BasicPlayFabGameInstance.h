@@ -13,5 +13,6 @@ UCLASS()
 class BASICPLAYFAB_API UBasicPlayFabGameInstance : public UGameInstance
 {
 	GENERATED_BODY()
-	
+public:
+
 };

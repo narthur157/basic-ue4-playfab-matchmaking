@@ -13,5 +13,7 @@ UCLASS()
 class BASICPLAYFAB_API UBasicPlayFabLibrary : public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
-	
+public:
+	UFUNCTION(BlueprintPure, Category = BasicPlayFab)
+	static bool IsLoggedIn();
 };

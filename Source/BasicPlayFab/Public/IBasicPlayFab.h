@@ -6,6 +6,7 @@
 #include "Modules/ModuleInterface.h"
 #include "Modules/ModuleManager.h"
 
+#define ENABLE_PLAYFABSERVER_API 1
 
 /**
  * The public interface to this module.  In most cases, this interface is only public to sibling modules 
