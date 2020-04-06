@@ -8,6 +8,12 @@
 #include <ISettingsContainer.h>
 #include <ISettingsSection.h>
 #endif
+
+#if UE_SERVER
+#include "gsdk.h"
+#include "string.h"
+#endif
+
 #include "PlayFabRuntimeSettings.h"
 #include "Internationalization/Internationalization.h"
 #include "PlayFabCommon.h"
@@ -19,6 +25,13 @@ class FBasicPlayFabModule : public IBasicPlayFab
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+	// ~ End IModuleInterface
+
+#if UE_SERVER
+	void StartServer();
+	void LogInfo(FString message);
+	void LogError(FString message);
+#endif
 
 	void RegisterSettings();
 	void UnregisterSettings();
@@ -79,20 +92,79 @@ bool FBasicPlayFabModule::HandleSettingsSaved()
 	{
 		Settings->SaveConfig();
 	}
-
 #endif
 	return true;
 }
 
+#if UE_SERVER
+
+void OnShutdown()
+{
+	LogInfo("OnShutdown");
+	FGenericPlatformMisc::RequestExit(true);
+}
+
+bool HealthCheck()
+{
+	LogInfo("Healthy");
+	return true;
+}
+
+void FBasicPlayFabModule::StartServer()
+{
+	try {
+		Microsoft::Azure::Gaming::GSDK::start();
+		Microsoft::Azure::Gaming::GSDK::registerHealthCallback(&HealthCheck);
+		Microsoft::Azure::Gaming::GSDK::registerShutdownCallback(&OnShutdown);
+
+		if (Microsoft::Azure::Gaming::GSDK::readyForPlayers())
+		{
+			LogInfo("Server is ready for players");
+		}
+		else
+		{
+			LogError("Server is terminating. Not ready for players");
+		}
+	}
+	catch (Microsoft::Azure::Gaming::GSDKInitializationException& e)
+	{
+		LogError("GSDK Initialization failed: " + FString(UTF8_TO_TCHAR(e.what())));
+	}
+}
+
+void FBasicPlayFabModule::LogInfo(FString message)
+{
+	UE_LOG(LogTemp, Display, TEXT("%s"), *message);
+	Microsoft::Azure::Gaming::GSDK::logMessage(std::string(TCHAR_TO_UTF8(*message)));
+}
+
+void FBasicPlayFabModule::LogError(FString message)
+{
+	UE_LOG(LogTemp, Error, TEXT("%s"), *message);
+	Microsoft::Azure::Gaming::GSDK::logMessage(std::string(TCHAR_TO_UTF8(*message)));
+}
+#endif
 
 void FBasicPlayFabModule::StartupModule()
 {
 	RegisterSettings();
+
+#if UE_SERVER
+	bool _playFab = true;
+	if (FParse::Param(FCommandLine::Get(), TEXT("NoPlayFab")))
+	{
+		_playFab = false;
+	}
+	if (_playFab) {
+		StartServer();
+	}
+#else
+	UE_LOG(LogTemp, Display, TEXT("Not UE_SERVER, in StartupModule()"))
+#endif
 }
 
 void FBasicPlayFabModule::ShutdownModule()
 {
-
 }
 
 #undef LOCTEXT_NAMESPACE
