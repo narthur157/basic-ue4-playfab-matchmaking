@@ -4,7 +4,10 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "Templates/SharedPointer.h"
 #include "BasicPlayFabLibrary.generated.h"
+
+class FJsonObject;
 
 /**
  * 
@@ -16,4 +19,6 @@ class BASICPLAYFAB_API UBasicPlayFabLibrary : public UBlueprintFunctionLibrary
 public:
 	UFUNCTION(BlueprintPure, Category = BasicPlayFab)
 	static bool IsLoggedIn();
+
+	static FString JsonToString(TSharedPtr<FJsonObject> Json);
 };

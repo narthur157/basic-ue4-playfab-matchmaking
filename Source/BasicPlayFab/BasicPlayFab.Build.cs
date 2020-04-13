@@ -21,6 +21,7 @@ public class BasicPlayFab : ModuleRules
             "CoreUObject",
             "Engine",
             "UMG",
+            "JSON",
             "Networking",
             "Sockets",
             "HTTP"
