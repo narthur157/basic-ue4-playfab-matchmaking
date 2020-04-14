@@ -5,12 +5,17 @@
 
 void UBasicPlayFabMatchmake::FindMatch()
 {
-	UBasicMatchmakingSystem* Matchmaking = GetGameInstance()->GetSubsystem<UBasicMatchmakingSystem>();
+	UBasicMatchmakingSystem* Matchmaking = GetMatchmakingSystem();
 
 	Matchmaking->OnMatchFound.AddUniqueDynamic(this, &UBasicPlayFabMatchmake::HandleMatchFound);
 	Matchmaking->OnMatchmakingError.AddUniqueDynamic(this, &UBasicPlayFabMatchmake::HandleFailure);
 	
 	Matchmaking->FindMatch();
+}
+
+UBasicMatchmakingSystem* UBasicPlayFabMatchmake::GetMatchmakingSystem()
+{
+	return GetGameInstance()->GetSubsystem<UBasicMatchmakingSystem>();
 }
 
 void UBasicPlayFabMatchmake::HandleFailure(const FString& Reason)

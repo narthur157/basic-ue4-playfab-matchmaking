@@ -33,7 +33,6 @@ public class BasicPlayFab : ModuleRules
             PrivateDependencyModuleNames.AddRange(new string[] { "Settings" });
         }
 
-
         bUseRTTI = false;
         //DynamicallyLoadedModuleNames.Add("OnlineSubsystemNull");
         if (Target.Type == TargetType.Server)

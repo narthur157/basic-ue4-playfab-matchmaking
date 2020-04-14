@@ -16,7 +16,7 @@
 
 #include "PlayFabRuntimeSettings.h"
 #include "Internationalization/Internationalization.h"
-#include "PlayFabCommon.h"
+#include "BasicPlayFabSettings.h"
 
 #define LOCTEXT_NAMESPACE "BasicPlayFab"
 
@@ -49,14 +49,14 @@ void FBasicPlayFabModule::RegisterSettings()
 		// Create the new category
 		ISettingsContainerPtr SettingsContainer = SettingsModule->GetContainer("Project");
 
-		SettingsContainer->DescribeCategory("BasicPlayFab",
-			LOCTEXT("Basic PlayFab Settings", "BasicPlayFab"),
-			LOCTEXT("Basic PlayFab Settings", "Setup for PlayFab"));
+		//SettingsContainer->DescribeCategory("Plugins",
+		//	LOCTEXT("Basic PlayFab Settings", "BasicPlayFab"),
+		//	LOCTEXT("Basic PlayFab Settings", "Setup for PlayFab"));
 		
-		ISettingsSectionPtr SettingsSection = SettingsModule->RegisterSettings("Project", "BasicPlayFab", "BasicPlayFab",
-			LOCTEXT("BasicPlayFab Settings", "BasicPlayFab"),
-			LOCTEXT("BasicPlayFab Settings", "PlayFab Runtime Settings"),
-			GetMutableDefault<UPlayFabRuntimeSettings>()
+		ISettingsSectionPtr SettingsSection = SettingsModule->RegisterSettings("Project", "Plugins", "Basic PlayFab",
+			LOCTEXT("BasicPlayFabSettingsName", "Basic Playab"),
+			LOCTEXT("BasicPlayFabSettingsDescription", "Configure Basic PlayFab Settings"),
+			GetMutableDefault<UBasicPlayFabSettings>()
 		);
 
 		// Register the save handler to your settings, you might want to use it to
@@ -85,7 +85,7 @@ void FBasicPlayFabModule::UnregisterSettings()
 bool FBasicPlayFabModule::HandleSettingsSaved()
 {
 #if WITH_EDITOR
-	UPlayFabRuntimeSettings* Settings = GetMutableDefault<UPlayFabRuntimeSettings>();
+	UBasicPlayFabSettings* Settings = GetMutableDefault<UBasicPlayFabSettings>();
 	bool ResaveSettings = false;
 
 	if (ResaveSettings)
@@ -93,6 +93,7 @@ bool FBasicPlayFabModule::HandleSettingsSaved()
 		Settings->SaveConfig();
 	}
 #endif
+
 	return true;
 }
 
@@ -100,13 +101,11 @@ bool FBasicPlayFabModule::HandleSettingsSaved()
 
 void OnShutdown()
 {
-	LogInfo("OnShutdown");
 	FGenericPlatformMisc::RequestExit(true);
 }
 
 bool HealthCheck()
 {
-	LogInfo("Healthy");
 	return true;
 }
 
@@ -150,12 +149,8 @@ void FBasicPlayFabModule::StartupModule()
 	RegisterSettings();
 
 #if UE_SERVER
-	bool _playFab = true;
 	if (FParse::Param(FCommandLine::Get(), TEXT("NoPlayFab")))
 	{
-		_playFab = false;
-	}
-	if (_playFab) {
 		StartServer();
 	}
 #else

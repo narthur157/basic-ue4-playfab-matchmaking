@@ -12,9 +12,28 @@ class BASICPLAYFAB_API UBasicPlayFabSettings : public UObject
 {
 	GENERATED_BODY()
 
-	UPROPERTY(GlobalConfig, EditDefaultsOnly, Category = "BasicPlayFab")
+public:
+	/*UPROPERTY(GlobalConfig, EditDefaultsOnly, Category = "BasicPlayFab")
 	FString TitleId;
 
 	UPROPERTY(GlobalConfig, EditDefaultsOnly, Category = "BasicPlayFab")
-	FString DeveloperSecretKey;
+	FString DeveloperSecretKey;*/
+
+	UPROPERTY(GlobalConfig, EditDefaultsOnly, Category = "BasicPlayFab|Matchmaking")
+	float MatchmakingTimeout = 120.f;
+	
+	/**
+	 * If true, shuts down server after MaxGameLength
+	 */
+	UPROPERTY(GlobalConfig, EditDefaultsOnly, Category = "BasicPlayFab|Server")
+	bool bUseMaxGameLength = true;
+
+	/**
+	 * Maximum amount of time the game session will last before the server is shut down
+	 */
+	UPROPERTY(GlobalConfig, EditDefaultsOnly, Category = "BasicPlayFab|Server")
+	float MaxGameLength = 300.f;
+
+
+	static UBasicPlayFabSettings* Get();
 };

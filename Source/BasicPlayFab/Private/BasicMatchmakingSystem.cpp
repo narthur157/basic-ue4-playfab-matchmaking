@@ -1,6 +1,9 @@
 // MIT License, Nick Arthur github.com/narthur157
 
 #include "BasicMatchmakingSystem.h"
+#include "BasicPlayFabLibrary.h"
+#include "BasicPlayFabSettings.h"
+
 #include "PlayFab.h"
 #include "PlayFabCommon.h"
 #include "PlayFabError.h"
@@ -10,14 +13,39 @@
 #include "PlayFabClientDataModels.h"
 #include "PlayFabMultiplayerDataModels.h"
 #include "PlayFabAuthenticationDataModels.h"
+
 #include "TimerManager.h"
 #include "Dom/JsonObject.h"
-#include "BasicPlayFabLibrary.h"
 
 UBasicMatchmakingSystem::UBasicMatchmakingSystem(const FObjectInitializer& ObjectInitializer)
 	: Super(), PlayFabClientAPI(IPlayFabModuleInterface::Get().GetClientAPI()), PlayFabMultiplayerAPI(IPlayFabModuleInterface::Get().GetMultiplayerAPI())
 {
 	ErrorDelegate = PlayFab::FPlayFabErrorDelegate::CreateUObject(this, &UBasicMatchmakingSystem::HandleMatchmakingFailure);
+}
+
+void UBasicMatchmakingSystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+
+#if UE_SERVER
+	UBasicPlayFabSettings* Settings = UBasicPlayFabSettings::Get();
+
+	if (Settings->bUseMaxGameLength)
+	{
+		FTimerHandle MaxGameLengthTimer;
+		GetWorld()->GetTimerManager().SetTimer(MaxGameLengthTimer, [&]() {
+			FGenericPlatformMisc::RequestExit(true);
+		}, Settings->MaxGameLength, false);
+	}
+#endif
+}
+
+void UBasicMatchmakingSystem::Deinitialize()
+{
+	Super::Deinitialize();
+
+	// Try to clear out any tickets on our way out so that we aren't put into a match we can't join
+	CancelMatchmaking();
 }
 
 bool UBasicMatchmakingSystem::FindMatch()
@@ -27,7 +55,7 @@ bool UBasicMatchmakingSystem::FindMatch()
 		return false;
 	}
 
-	if (CurrentPlayFabId.IsEmpty())
+	if (CurrentPlayerEntityId.IsEmpty())
 	{
 		UE_LOG(LogTemp, Error, TEXT("Cannot start matchmaking when not logged in"));
 		return false;
@@ -38,7 +66,7 @@ bool UBasicMatchmakingSystem::FindMatch()
 	auto Success = PlayFab::UPlayFabMultiplayerInstanceAPI::FCreateMatchmakingTicketDelegate::CreateLambda(
 		[&](const PlayFab::MultiplayerModels::FCreateMatchmakingTicketResult& Result)
 	{
-		UE_LOG(LogTemp, Log, TEXT("FindMatch succeeded, polling match status.."));
+		UE_LOG(LogTemp, Log, TEXT("CreateMatchmakingTicket succeeded, polling match status.."));
 		CurrentTicket = Result.TicketId;
 
 		PollMatchmakingTicket();
@@ -46,24 +74,43 @@ bool UBasicMatchmakingSystem::FindMatch()
 
 	PlayFab::MultiplayerModels::FCreateMatchmakingTicketRequest Request;
 
-	Request.GiveUpAfterSeconds = 120;
+	Request.GiveUpAfterSeconds = UBasicPlayFabSettings::Get()->MatchmakingTimeout;
 	Request.QueueName = QueueMode;
+	Request.MembersToMatchWith = {};
 
 	TSharedPtr<FJsonObject> AttributesObject = MakeMatchmakingAttributes();
 
 	UE_LOG(LogTemp, Log, TEXT("Made matchmaking attributes:\n%s"), *UBasicPlayFabLibrary::JsonToString(AttributesObject));
-	Request.Creator.Entity = MakePlayerEntity();
 
+	Request.Creator.Entity = MakePlayerEntity();
 	Request.Creator.Attributes = MakeShared<PlayFab::MultiplayerModels::FMatchmakingPlayerAttributes>(PlayFab::MultiplayerModels::FMatchmakingPlayerAttributes(AttributesObject));
 
+	UE_LOG(LogTemp, Log, TEXT("CreateMatchMakingRequest: %s"), *Request.toJSONString());
 	PlayFabMultiplayerAPI->CreateMatchmakingTicket(Request, Success, ErrorDelegate);
 	
 	return true;
 }
 
+bool UBasicMatchmakingSystem::IsMatchmakingActive()
+{
+	return bLookingForMatch;
+}
+
 void UBasicMatchmakingSystem::SetActivePlayFabId(const FString& Id)
 {
-	CurrentPlayFabId = Id;
+	CurrentPlayerEntityId = Id;
+}
+
+void UBasicMatchmakingSystem::CancelMatchmaking()
+{
+	if (CurrentPlayerEntityId.IsEmpty()) { return; }
+
+	UE_LOG(LogTemp, Log, TEXT("Clearing matchmaking tickets for player %s"), *CurrentPlayerEntityId);
+	PlayFab::MultiplayerModels::FCancelAllMatchmakingTicketsForPlayerRequest Request;
+	Request.Entity = MakeShared<PlayFab::MultiplayerModels::FEntityKey>(MakePlayerEntity());
+	Request.QueueName = QueueMode;
+
+	PlayFabMultiplayerAPI->CancelAllMatchmakingTicketsForPlayer(Request);
 }
 
 void UBasicMatchmakingSystem::PollMatchmakingTicket()
@@ -89,14 +136,17 @@ void UBasicMatchmakingSystem::PollMatchmakingTicket()
 	auto Success = PlayFab::UPlayFabMultiplayerInstanceAPI::FGetMatchmakingTicketDelegate::CreateLambda(
 		[&](const PlayFab::MultiplayerModels::FGetMatchmakingTicketResult& Result)
 	{
-		
-		if (!(Result.MatchId.IsEmpty()))
+		if (Result.Status == "Canceled")
+		{
+			CancelMatchmaking();
+		}
+		else if (!(Result.MatchId.IsEmpty()))
 		{
 			HandleMatchFound(Result.MatchId);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Log, TEXT("Polling, no match found yet"));
+			UE_LOG(LogTemp, Log, TEXT("Polling GetMatchmakingTicket, current status: %s. %d members currently"), *Result.Status, Result.Members.Num());
 		}
 	});
 
@@ -111,33 +161,46 @@ void UBasicMatchmakingSystem::HandleMatchmakingFailure(const PlayFab::FPlayFabCp
 	
 	OnMatchmakingError.Broadcast(Error.ErrorMessage);
 
-	PlayFab::MultiplayerModels::FCancelAllMatchmakingTicketsForPlayerRequest Request;
-	Request.Entity = MakeShared<PlayFab::MultiplayerModels::FEntityKey>(MakePlayerEntity());
-	Request.QueueName = QueueMode;
-
-	PlayFabMultiplayerAPI->CancelAllMatchmakingTicketsForPlayer(Request);
+	CancelMatchmaking();
 }
 
 void UBasicMatchmakingSystem::HandleMatchFound(FString MatchId)
 {
 	PlayFab::MultiplayerModels::FGetMatchRequest Request;
 	Request.MatchId = MatchId;
+	Request.QueueName = QueueMode;
 
 	auto Success = PlayFab::UPlayFabMultiplayerInstanceAPI::FGetMatchDelegate::CreateLambda(
 		[&](const PlayFab::MultiplayerModels::FGetMatchResult& Result)
 	{
+		UE_LOG(LogTemp, Log, TEXT("GetMatch %s succeeded! Broadcasting result"), *Result.MatchId);
 		bLookingForMatch = false;
 		GetWorld()->GetTimerManager().ClearTimer(PollingTimer);
 		
 		FBasicMatchmakingResult BasicResult = FBasicMatchmakingResult(Result.pfServerDetails);
 		
-		FString Url = BasicResult.IpAddress + ":" + BasicResult.Port;	// + "?ticket=" + Result.Ticket;
+		FString Url = BasicResult.IpAddress + ":" + BasicResult.Port + "?PlayFabId=" + CurrentPlayerEntityId;
 		BasicResult.Url = Url;
+		MatchResultData = BasicResult;
 
-		OnMatchFound.Broadcast(Result.pfServerDetails);
+		OnMatchFound.Broadcast(BasicResult);
+
+		TravelToMatch();
 	});
 
+	UE_LOG(LogTemp, Log, TEXT("GetMatch: %s"), *Request.toJSONString());
+
 	PlayFabMultiplayerAPI->GetMatch(Request, Success, ErrorDelegate);
+}
+
+void UBasicMatchmakingSystem::TravelToMatch()
+{
+	FTimerHandle StartMatchTimer;
+	GetWorld()->GetTimerManager().SetTimer(StartMatchTimer, [&]() {
+		UE_LOG(LogTemp, Log, TEXT("Traveling to match at URL %s"), *MatchResultData.Url);
+		
+		GetWorld()->GetFirstPlayerController()->ClientTravel(MatchResultData.Url, ETravelType::TRAVEL_Absolute, false);
+	}, false, MatchStartDelay);
 }
 
 TSharedPtr<FJsonObject> UBasicMatchmakingSystem::MakeMatchmakingAttributes()
@@ -147,20 +210,15 @@ TSharedPtr<FJsonObject> UBasicMatchmakingSystem::MakeMatchmakingAttributes()
 
 	TArray<TSharedPtr<FJsonValue>> Latencies;
 	TSharedPtr<FJsonObject> LatencyObject = MakeShared<FJsonObject>();
-	TSharedPtr<FJsonObject> LatencyObject2 = MakeShared<FJsonObject>();
-
 
 	// According to this, this is necessary? https://docs.microsoft.com/en-us/gaming/playfab/features/multiplayer/matchmaking/ticket-attributes
-	LatencyObject->SetStringField("region", "RegionUSEast");
+	// TODO: Actually perform measurements, however optimized multi-region isn't something that's really "in scope" at the moment
+	// Would generally rather set region based on preference
+	LatencyObject->SetStringField("region", "EastUs");
 	LatencyObject->SetNumberField("latency", 100);
-
-	LatencyObject2->SetStringField("region", "EastUs2");
-	LatencyObject2->SetNumberField("latency", 200);
 	
 	Latencies.Add(MakeShared<FJsonValueObject>(FJsonValueObject(LatencyObject)));
-	Latencies.Add(MakeShared<FJsonValueObject>(FJsonValueObject(LatencyObject2)));
-	
-	DataObject.SetArrayField("region", Latencies);
+
 	DataObject.SetArrayField("Latencies", Latencies);
 
 	AttributesObject.SetObjectField("DataObject", MakeShared<FJsonObject>(DataObject));
@@ -172,7 +230,8 @@ PlayFab::MultiplayerModels::FEntityKey UBasicMatchmakingSystem::MakePlayerEntity
 {
 	PlayFab::MultiplayerModels::FEntityKey Entity;
 
-	Entity.Id = CurrentPlayFabId; //IPlayFabCommonModuleInterface::Get().GetEntityToken(); //PlayFabCommon::PlayFabCommonSettings::entityToken;
+	// TODO: Get this via auth context somehow independent of login method
+	Entity.Id = CurrentPlayerEntityId;
 	Entity.Type = "title_player_account";
 
 	return Entity;

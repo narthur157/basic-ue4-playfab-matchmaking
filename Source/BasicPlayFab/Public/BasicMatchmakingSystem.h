@@ -13,13 +13,6 @@ namespace PlayFab
 {
 	typedef TSharedPtr<class UPlayFabClientAPI> PlayFabClientPtr;
 	typedef TSharedPtr<class UPlayFabMultiplayerAPI> PlayFabMultiplayerPtr;
-	typedef TSharedPtr<class UPlayFabMatchmakerAPI> PlayFabMatchmakerPtr;
-	typedef TSharedPtr<class UPlayFabAuthenticationAPI> PlayFabAuthenticationPtr;
-
-	namespace ClientModels
-	{
-		enum Region;
-	}
 
 	namespace MultiplayerModels
 	{
@@ -64,6 +57,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchmakingError, const FString&,
  * Provides a single point of responsibility for matchmaking
  * This is a game instance system so that matchmaking can occur across different maps, and prevent 
  * odd states from occuring, eg if a map travel occurs mid matchmaking
+ * 
+ * FindMatch is the main entry point to matchmaking, this creates a ticket which is then polled until a match is found
+ * After the match is found, the client is travelled to the found match
  */
 UCLASS()
 class BASICPLAYFAB_API UBasicMatchmakingSystem : public UGameInstanceSubsystem
@@ -93,6 +89,18 @@ public:
 	bool FindMatch();
 
 	/**
+	 * Resets all matchmaking related states
+	 */
+	UFUNCTION(BlueprintCallable, Category = "BasicPlayFab|Matchmaking")
+	void CancelMatchmaking();
+
+	/**
+	 * Has matchmaking been started and not yet cancelled or found
+	 */
+	UFUNCTION(BlueprintPure, Category = "BasicPlayFab|Matchmaking")
+	bool IsMatchmakingActive();
+
+	/**
 	 * We really should be able to just call some playfab function to get this
 	 * I just can't find it
 	 */
@@ -100,18 +108,25 @@ public:
 	void SetActivePlayFabId(const FString& Id);
 
 
+	// UGameInstanceSubsystem Interface
+	void Initialize(FSubsystemCollectionBase& Collection) override;
+	void Deinitialize() override;
+	// ~UGameInstanceSubsystem
+
 protected:
 
 	// These should be configurable/possibly retrieved from some game mode metadata
 	FString QueueMode = "test";
 	
 	PlayFab::ClientModels::Region Region;
-	FString CurrentPlayFabId;
+	FString CurrentPlayerEntityId;
+
+	float MatchStartDelay = 3.f;
+
+	FBasicMatchmakingResult MatchResultData;
 
 	PlayFab::PlayFabClientPtr PlayFabClientAPI;
 	PlayFab::PlayFabMultiplayerPtr PlayFabMultiplayerAPI;
-	PlayFab::PlayFabMatchmakerPtr PlayFabMatchmakerAPI;
-	PlayFab::PlayFabMatchmakerPtr PlayFabAuthenticationAPI;
 
 	PlayFab::FPlayFabErrorDelegate ErrorDelegate;
 
@@ -127,7 +142,19 @@ protected:
 
 	void HandleMatchFound(FString MatchId);
 
+	/**
+	 * Countdown this->MatchStartDelay seconds and then travel to the url in this->MatchStartDelay
+	 */
+	void TravelToMatch();
+
+	/**
+	 * Produce a JSON object for the CreateMatchmakingTicket request
+	 */
 	TSharedPtr<FJsonObject> MakeMatchmakingAttributes();
 
+	/**
+	 * Uses the class's CurrentPlayerEntityId
+	 * This should ideally just be automatically fetched + stored in PlayFab state irrespective of login method
+	 */
 	PlayFab::MultiplayerModels::FEntityKey MakePlayerEntity();
 };

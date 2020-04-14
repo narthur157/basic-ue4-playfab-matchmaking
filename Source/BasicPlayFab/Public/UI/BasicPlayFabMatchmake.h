@@ -6,6 +6,8 @@
 #include "Blueprint/UserWidget.h"
 #include "BasicPlayFabMatchmake.generated.h"
 
+class UBasicMatchmakingSystem;
+
 /**
  *
  */
@@ -17,6 +19,12 @@ class BASICPLAYFAB_API UBasicPlayFabMatchmake : public UUserWidget
 protected:
 	UFUNCTION(BlueprintCallable, Category = "BasicPlayFab|Matchmaking")
 	void FindMatch();
+
+	UFUNCTION(BlueprintPure, Category = "BasicPlayFab|Matchmaking")
+	UBasicMatchmakingSystem* GetMatchmakingSystem();
+
+	UPROPERTY(BlueprintReadOnly, Category = "BasicPlayFab|Matchmaking")
+	float TimeMatchmakingStarted = -1.f;
 
 	UFUNCTION()
 	void HandleMatchFound(FBasicMatchmakingResult ServerDetails);
