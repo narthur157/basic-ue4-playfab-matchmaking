@@ -21,6 +21,18 @@ namespace PlayFab
 	}
 }
 
+UENUM(BlueprintType)
+enum class EMatchmakingStatus : uint8
+{
+	Inactive,
+	WaitingForMatchmakingService,
+	WaitingForPlayers,
+	WaitingForServer,
+	MatchFound,
+	InMatch
+};
+
+
 /**
  * This is the result of matchmaking
  */
@@ -52,6 +64,7 @@ public:
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchFound, FBasicMatchmakingResult, ServerData);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchmakingError, const FString&, Reason);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchmakingStatusChanged, EMatchmakingStatus, MatchmakingStatus);
 
 /**
  * Provides a single point of responsibility for matchmaking
@@ -72,21 +85,27 @@ public:
 	/**
 	 * Match data has been loaded, we have an IP + port to connect to
 	 */
-	UPROPERTY(BlueprintAssignable, Category = "BasicMatchmakingSystem")
-	FOnMatchFound OnMatchFound;
+	UPROPERTY(BlueprintAssignable, Category = "BasicPlayFab|Matchmaking")
+		FOnMatchFound OnMatchFound;
 
 	/**
 	 * Called if some error occurs at any point in the process
 	 */
-	UPROPERTY(BlueprintAssignable, Category = "BasicMatchmakingSystem")
+	UPROPERTY(BlueprintAssignable, Category = "BasicPlayFab|Matchmaking")
 	FOnMatchmakingError OnMatchmakingError;
-	
+
+	/**
+	 * Corresponds to EMatchmakingStatus states
+	 */
+	UPROPERTY(BlueprintAssignable, Category = "BasicPlayFab|Matchmaking")
+	FOnMatchmakingStatusChanged OnMatchmakingStatusChanged;
+
 	/**
 	 * Start looking for a match. Will return false if a search is already in progress
-	 * TODO: This should accept a param for which queue to search
+	 * Mode MUST be a valid Matchmaking Queue mode, or the matchmaking will fail
 	 */
 	UFUNCTION(BlueprintCallable, Category = "BasicPlayFab|Matchmaking")
-	bool FindMatch();
+	bool FindMatch(const FString& Mode);
 
 	/**
 	 * Resets all matchmaking related states
@@ -114,6 +133,7 @@ public:
 	// ~UGameInstanceSubsystem
 
 protected:
+	EMatchmakingStatus MatchmakingStatus = EMatchmakingStatus::Inactive;
 
 	// These should be configurable/possibly retrieved from some game mode metadata
 	FString QueueMode = "test";
@@ -127,19 +147,23 @@ protected:
 
 	PlayFab::PlayFabClientPtr PlayFabClientAPI;
 	PlayFab::PlayFabMultiplayerPtr PlayFabMultiplayerAPI;
-
+	
+	// This error delegate is used for all the potential matchmaking errors, until we have a better idea of which errors need more context
 	PlayFab::FPlayFabErrorDelegate ErrorDelegate;
 
-	bool bLookingForMatch = false;
 
 	FString CurrentTicket;
 	FTimerHandle PollingTimer;
+
+	/**
+	 * Set a new status and trigger the on status change delegate if it's a new status
+	 */
+	void SetMatchmakingStatus(EMatchmakingStatus Status);
 
 	UFUNCTION()
 	void PollMatchmakingTicket();
 
 	void HandleMatchmakingFailure(const PlayFab::FPlayFabCppError& Error);
-
 	void HandleMatchFound(FString MatchId);
 
 	/**

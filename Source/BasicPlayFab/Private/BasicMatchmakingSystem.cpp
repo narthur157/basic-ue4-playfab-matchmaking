@@ -3,6 +3,7 @@
 #include "BasicMatchmakingSystem.h"
 #include "BasicPlayFabLibrary.h"
 #include "BasicPlayFabSettings.h"
+#include "IBasicPlayFab.h"
 
 #include "PlayFab.h"
 #include "PlayFabCommon.h"
@@ -48,25 +49,34 @@ void UBasicMatchmakingSystem::Deinitialize()
 	CancelMatchmaking();
 }
 
-bool UBasicMatchmakingSystem::FindMatch()
+bool UBasicMatchmakingSystem::FindMatch(const FString& Mode)
 {
-	if (bLookingForMatch)
+	if (MatchmakingStatus != EMatchmakingStatus::Inactive)
 	{
 		return false;
 	}
+
+	if (Mode.IsEmpty())
+	{
+		UE_LOG(BasicPlayFab, Error, TEXT("Mode must not be empty"));
+		return false;
+	}
+
+	QueueMode = Mode;
 
 	if (CurrentPlayerEntityId.IsEmpty())
 	{
-		UE_LOG(LogTemp, Error, TEXT("Cannot start matchmaking when not logged in"));
+		UE_LOG(BasicPlayFab, Error, TEXT("Cannot start matchmaking when not logged in"));
 		return false;
 	}
 
-	bLookingForMatch = true;
+	SetMatchmakingStatus(EMatchmakingStatus::WaitingForMatchmakingService);
 
 	auto Success = PlayFab::UPlayFabMultiplayerInstanceAPI::FCreateMatchmakingTicketDelegate::CreateLambda(
 		[&](const PlayFab::MultiplayerModels::FCreateMatchmakingTicketResult& Result)
 	{
-		UE_LOG(LogTemp, Log, TEXT("CreateMatchmakingTicket succeeded, polling match status.."));
+		SetMatchmakingStatus(EMatchmakingStatus::WaitingForPlayers);
+		UE_LOG(BasicPlayFab, Log, TEXT("CreateMatchmakingTicket succeeded, polling match status.."));
 		CurrentTicket = Result.TicketId;
 
 		PollMatchmakingTicket();
@@ -80,12 +90,12 @@ bool UBasicMatchmakingSystem::FindMatch()
 
 	TSharedPtr<FJsonObject> AttributesObject = MakeMatchmakingAttributes();
 
-	UE_LOG(LogTemp, Log, TEXT("Made matchmaking attributes:\n%s"), *UBasicPlayFabLibrary::JsonToString(AttributesObject));
+	UE_LOG(BasicPlayFab, Log, TEXT("Made matchmaking attributes:\n%s"), *UBasicPlayFabLibrary::JsonToString(AttributesObject));
 
 	Request.Creator.Entity = MakePlayerEntity();
 	Request.Creator.Attributes = MakeShared<PlayFab::MultiplayerModels::FMatchmakingPlayerAttributes>(PlayFab::MultiplayerModels::FMatchmakingPlayerAttributes(AttributesObject));
 
-	UE_LOG(LogTemp, Log, TEXT("CreateMatchMakingRequest: %s"), *Request.toJSONString());
+	UE_LOG(BasicPlayFab, Log, TEXT("CreateMatchMakingRequest: %s"), *Request.toJSONString());
 	PlayFabMultiplayerAPI->CreateMatchmakingTicket(Request, Success, ErrorDelegate);
 	
 	return true;
@@ -93,7 +103,7 @@ bool UBasicMatchmakingSystem::FindMatch()
 
 bool UBasicMatchmakingSystem::IsMatchmakingActive()
 {
-	return bLookingForMatch;
+	return MatchmakingStatus == EMatchmakingStatus::WaitingForPlayers || MatchmakingStatus == EMatchmakingStatus::WaitingForServer;
 }
 
 void UBasicMatchmakingSystem::SetActivePlayFabId(const FString& Id)
@@ -105,19 +115,29 @@ void UBasicMatchmakingSystem::CancelMatchmaking()
 {
 	if (CurrentPlayerEntityId.IsEmpty()) { return; }
 
-	UE_LOG(LogTemp, Log, TEXT("Clearing matchmaking tickets for player %s"), *CurrentPlayerEntityId);
+	UE_LOG(BasicPlayFab, Log, TEXT("Clearing matchmaking tickets for player %s"), *CurrentPlayerEntityId);
 	PlayFab::MultiplayerModels::FCancelAllMatchmakingTicketsForPlayerRequest Request;
 	Request.Entity = MakeShared<PlayFab::MultiplayerModels::FEntityKey>(MakePlayerEntity());
 	Request.QueueName = QueueMode;
 
 	PlayFabMultiplayerAPI->CancelAllMatchmakingTicketsForPlayer(Request);
+	SetMatchmakingStatus(EMatchmakingStatus::Inactive);
+}
+
+void UBasicMatchmakingSystem::SetMatchmakingStatus(EMatchmakingStatus Status)
+{
+	if (Status != MatchmakingStatus)
+	{
+		MatchmakingStatus = Status;
+		OnMatchmakingStatusChanged.Broadcast(Status);
+	}
 }
 
 void UBasicMatchmakingSystem::PollMatchmakingTicket()
 {
-	if (!bLookingForMatch)
+	if (!IsMatchmakingActive())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Not polling because matchmaking is not in progress"));
+		UE_LOG(BasicPlayFab, Warning, TEXT("Not polling because matchmaking is not in progress"));
 		return;
 	}
 
@@ -146,7 +166,16 @@ void UBasicMatchmakingSystem::PollMatchmakingTicket()
 		}
 		else
 		{
-			UE_LOG(LogTemp, Log, TEXT("Polling GetMatchmakingTicket, current status: %s. %d members currently"), *Result.Status, Result.Members.Num());
+			if (Result.Status == "WaitingForPlayers")
+			{
+				SetMatchmakingStatus(EMatchmakingStatus::WaitingForPlayers);
+			}
+			if (Result.Status == "WaitingForServer")
+			{
+				SetMatchmakingStatus(EMatchmakingStatus::WaitingForServer);
+			}
+
+			UE_LOG(BasicPlayFab, Log, TEXT("Polling GetMatchmakingTicket, current status: %s. %d members currently"), *Result.Status, Result.Members.Num());
 		}
 	});
 
@@ -155,8 +184,8 @@ void UBasicMatchmakingSystem::PollMatchmakingTicket()
 
 void UBasicMatchmakingSystem::HandleMatchmakingFailure(const PlayFab::FPlayFabCppError& Error)
 {
-	UE_LOG(LogTemp, Error, TEXT("%s"), *Error.GenerateErrorReport());
-	bLookingForMatch = false;
+	UE_LOG(BasicPlayFab, Error, TEXT("%s"), *Error.GenerateErrorReport());
+	SetMatchmakingStatus(EMatchmakingStatus::Inactive);
 	GetWorld()->GetTimerManager().ClearTimer(PollingTimer);
 	
 	OnMatchmakingError.Broadcast(Error.ErrorMessage);
@@ -173,8 +202,9 @@ void UBasicMatchmakingSystem::HandleMatchFound(FString MatchId)
 	auto Success = PlayFab::UPlayFabMultiplayerInstanceAPI::FGetMatchDelegate::CreateLambda(
 		[&](const PlayFab::MultiplayerModels::FGetMatchResult& Result)
 	{
-		UE_LOG(LogTemp, Log, TEXT("GetMatch %s succeeded! Broadcasting result"), *Result.MatchId);
-		bLookingForMatch = false;
+		UE_LOG(BasicPlayFab, Log, TEXT("GetMatch %s succeeded! Broadcasting result"), *Result.MatchId);
+		SetMatchmakingStatus(EMatchmakingStatus::InMatch);
+
 		GetWorld()->GetTimerManager().ClearTimer(PollingTimer);
 		
 		FBasicMatchmakingResult BasicResult = FBasicMatchmakingResult(Result.pfServerDetails);
@@ -188,7 +218,7 @@ void UBasicMatchmakingSystem::HandleMatchFound(FString MatchId)
 		TravelToMatch();
 	});
 
-	UE_LOG(LogTemp, Log, TEXT("GetMatch: %s"), *Request.toJSONString());
+	UE_LOG(BasicPlayFab, Log, TEXT("GetMatch: %s"), *Request.toJSONString());
 
 	PlayFabMultiplayerAPI->GetMatch(Request, Success, ErrorDelegate);
 }
@@ -197,7 +227,7 @@ void UBasicMatchmakingSystem::TravelToMatch()
 {
 	FTimerHandle StartMatchTimer;
 	GetWorld()->GetTimerManager().SetTimer(StartMatchTimer, [&]() {
-		UE_LOG(LogTemp, Log, TEXT("Traveling to match at URL %s"), *MatchResultData.Url);
+		UE_LOG(BasicPlayFab, Log, TEXT("Traveling to match at URL %s"), *MatchResultData.Url);
 		
 		GetWorld()->GetFirstPlayerController()->ClientTravel(MatchResultData.Url, ETravelType::TRAVEL_Absolute, false);
 	}, false, MatchStartDelay);

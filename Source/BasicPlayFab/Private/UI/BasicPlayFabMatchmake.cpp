@@ -10,7 +10,7 @@ void UBasicPlayFabMatchmake::FindMatch()
 	Matchmaking->OnMatchFound.AddUniqueDynamic(this, &UBasicPlayFabMatchmake::HandleMatchFound);
 	Matchmaking->OnMatchmakingError.AddUniqueDynamic(this, &UBasicPlayFabMatchmake::HandleFailure);
 	
-	Matchmaking->FindMatch();
+	Matchmaking->FindMatch("test");
 }
 
 UBasicMatchmakingSystem* UBasicPlayFabMatchmake::GetMatchmakingSystem()

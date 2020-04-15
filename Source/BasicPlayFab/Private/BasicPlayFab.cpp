@@ -20,6 +20,8 @@
 
 #define LOCTEXT_NAMESPACE "BasicPlayFab"
 
+DEFINE_LOG_CATEGORY(BasicPlayFab);
+
 class FBasicPlayFabModule : public IBasicPlayFab
 {
 	/** IModuleInterface implementation */
@@ -29,8 +31,8 @@ class FBasicPlayFabModule : public IBasicPlayFab
 
 #if UE_SERVER
 	void StartServer();
-	void LogInfo(FString message);
-	void LogError(FString message);
+	/*void LogInfo(FString message);
+	void LogError(FString message);*/
 #endif
 
 	void RegisterSettings();
@@ -48,10 +50,6 @@ void FBasicPlayFabModule::RegisterSettings()
 	{
 		// Create the new category
 		ISettingsContainerPtr SettingsContainer = SettingsModule->GetContainer("Project");
-
-		//SettingsContainer->DescribeCategory("Plugins",
-		//	LOCTEXT("Basic PlayFab Settings", "BasicPlayFab"),
-		//	LOCTEXT("Basic PlayFab Settings", "Setup for PlayFab"));
 		
 		ISettingsSectionPtr SettingsSection = SettingsModule->RegisterSettings("Project", "Plugins", "Basic PlayFab",
 			LOCTEXT("BasicPlayFabSettingsName", "Basic Playab"),
@@ -99,13 +97,27 @@ bool FBasicPlayFabModule::HandleSettingsSaved()
 
 #if UE_SERVER
 
+void LogInfo(FString message)
+{
+	UE_LOG(BasicPlayFab, Display, TEXT("%s"), *message);
+	Microsoft::Azure::Gaming::GSDK::logMessage(std::string(TCHAR_TO_UTF8(*message)));
+}
+
+void LogError(FString message)
+{
+	UE_LOG(BasicPlayFab, Error, TEXT("%s"), *message);
+	Microsoft::Azure::Gaming::GSDK::logMessage(std::string(TCHAR_TO_UTF8(*message)));
+}
+
 void OnShutdown()
 {
+	LogInfo("Shutting down");
 	FGenericPlatformMisc::RequestExit(true);
 }
 
 bool HealthCheck()
 {
+	LogInfo("Healthy");
 	return true;
 }
 
@@ -130,18 +142,6 @@ void FBasicPlayFabModule::StartServer()
 		LogError("GSDK Initialization failed: " + FString(UTF8_TO_TCHAR(e.what())));
 	}
 }
-
-void FBasicPlayFabModule::LogInfo(FString message)
-{
-	UE_LOG(LogTemp, Display, TEXT("%s"), *message);
-	Microsoft::Azure::Gaming::GSDK::logMessage(std::string(TCHAR_TO_UTF8(*message)));
-}
-
-void FBasicPlayFabModule::LogError(FString message)
-{
-	UE_LOG(LogTemp, Error, TEXT("%s"), *message);
-	Microsoft::Azure::Gaming::GSDK::logMessage(std::string(TCHAR_TO_UTF8(*message)));
-}
 #endif
 
 void FBasicPlayFabModule::StartupModule()
@@ -154,7 +154,7 @@ void FBasicPlayFabModule::StartupModule()
 		StartServer();
 	}
 #else
-	UE_LOG(LogTemp, Display, TEXT("Not UE_SERVER, in StartupModule()"))
+	UE_LOG(BasicPlayFab, Display, TEXT("Not UE_SERVER, in StartupModule()"))
 #endif
 }
 

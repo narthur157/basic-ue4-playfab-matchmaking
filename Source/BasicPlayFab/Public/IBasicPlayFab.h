@@ -8,6 +8,8 @@
 
 #define ENABLE_PLAYFABSERVER_API 1
 
+DECLARE_LOG_CATEGORY_EXTERN(BasicPlayFab, Log, All);
+
 /**
  * The public interface to this module.  In most cases, this interface is only public to sibling modules 
  * within this plugin.
