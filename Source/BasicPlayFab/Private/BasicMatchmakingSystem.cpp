@@ -230,7 +230,7 @@ void UBasicMatchmakingSystem::TravelToMatch()
 		UE_LOG(BasicPlayFab, Log, TEXT("Traveling to match at URL %s"), *MatchResultData.Url);
 		
 		GetWorld()->GetFirstPlayerController()->ClientTravel(MatchResultData.Url, ETravelType::TRAVEL_Absolute, false);
-	}, false, MatchStartDelay);
+	}, 0.f, false, MatchStartDelay);
 }
 
 TSharedPtr<FJsonObject> UBasicMatchmakingSystem::MakeMatchmakingAttributes()
